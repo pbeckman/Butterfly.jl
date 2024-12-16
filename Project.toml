@@ -1,0 +1,10 @@
+name = "Butterfly"
+uuid = "300f4b98-7452-4879-8417-07ff5a8f26cb"
+authors = ["Paul Beckman <paul.beckman@cims.nyu.edu>"]
+version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+RegionTrees = "dee08c22-ab7f-5625-9660-a9af2021b33f"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
