@@ -4,14 +4,14 @@ import Random: randperm
 include("util.jl")
 
 # size of DFT to factorize
-n = 2^10
+n = 2^12
 m = n
 # number of levels in factorization
-L = Int(log(2, min(n,m))) - 0
+L = Int(log(2, min(n,m))) - 3
 # whether to use bit-reversal permutation to get exact butterfly rank 1
 permute = false
 # tolerance for factorization
-tol = 1e-8
+tol = 1e-3
 
 # xs = reshape(2pi*rand(n), 1, :)
 # ws = reshape(m*rand(m), 1, :)
@@ -34,17 +34,12 @@ if permute
 end
 
 # kernel(xs, ws) = Float64.((n/2pi * xs) .≈ ws')
-kernel(xs, ws) = exp.(-im*xs'*ws)
-# kernel(xs, ws) = besselj.(0, xs'*ws)
-
-if n < 10_000
-    A = kernel(xs, ws)
-end
+# kernel(xs, ws) = exp.(-im*xs'*ws)
+kernel(xs, ws) = besselj.(0, xs'*ws)
 
 B = butterfly_factorize(
     kernel, xs, ws; L=L,
-    Tx=Tx, Tw=Tw, tol=tol, verbose=true, 
-    # stop_at=1
+    Tx=Tx, Tw=Tw, tol=tol, verbose=true
     );
 
 if n < 20_000
@@ -52,5 +47,14 @@ if n < 20_000
     v  = randn(n)
     w  = A*v
     wb = B*v
-    @printf("\nRelative apply error : %.2e\n", norm(w - wb) / norm(w))
+    @printf("\nRelative apply error  : %.2e\n", norm(w - wb) / norm(w))
+    @printf(
+        "Size of dense matrix  : %s\n", 
+        Base.format_bytes(Base.summarysize(A))
+    )
 end
+
+@printf(
+    "Size of factorization : %s\n", 
+    Base.format_bytes(Base.summarysize(B.Vt) + Base.summarysize(B.U))
+    )

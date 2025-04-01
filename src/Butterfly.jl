@@ -1,8 +1,8 @@
 module Butterfly
 
-    using LinearAlgebra, StaticArrays, RegionTrees, Printf
+    using LinearAlgebra, StaticArrays, Printf
 
-    export build_tree, get_root, get_all_level, butterfly_factorize
+    export build_tree, root, butterfly_factorize
 
     include("trees.jl")
     include("butterfly_matrix.jl")
