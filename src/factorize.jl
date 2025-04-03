@@ -3,7 +3,7 @@ function butterfly_factorize(
     kernel, xs, ws;
     tol=1e-8, L=nothing, 
     Tx::Tree{Dx, Kx, T}=nothing, Tw::Tree{Dw, Kw, T}=nothing, 
-    verbose=false, stop_at_level=Inf
+    verbose=false, stop_at_level=Inf, os=Inf
     ) where {Dx, Kx, Dw, Kw, T}
     nx = size(xs, 2)
     nw = size(ws, 2)
@@ -44,27 +44,36 @@ function butterfly_factorize(
                 pj = parent_ind(Dx, j, Kx)
                 if l == 0
                     # evaluate kernel on block column to build first factor
-                    F = svd(
-                        kernel(xs[:,ndj.inds], ws[:,ndk.inds])
+                    # s = isinf(os) ? Inf : ceil(Int64, os*length(ndk.inds))
+                    M = kernel(
+                            xs[:, ndj.inds], 
+                            ws[:, ndk.inds]
                         )
                 else
                     # compute nested factors from previous level
-                    F = svd(
-                        hcat(
+                    # s = isinf(os) ? Inf : ceil(Int64, os*sum(size.([U[l][pj,ck][subsample_inds(ndj.loc_inds, s), :] for ck in cks], 2))*Kw)
+                    # M = kernel(
+                    #     xs[:, ndj.parent.inds],
+                    #     ws[:, vcat(getfield.(ndk.children, :inds)...)]
+                    #     )
+                    M = hcat(
                             [U[l][pj,ck][ndj.loc_inds, :] for ck in cks]...
                         )
-                    )
                 end
+                # compute factorization
+                F = idfact(M, rtol=tol)
                 # compute epsilon rank of block
-                if length(F.S) == 0
-                    r = 0
-                else
-                    r = findfirst(F.S/F.S[1] .< tol)
-                    r = isnothing(r) ? length(F.S) : r-1
-                end
+                r = length(F.sk)
                 # write factors
-                U[l+1][j,k]  = F.U[:,1:r] .* F.S[1:r]'
-                Vt[l+1][j,k] = F.Vt[1:r,:]
+                if l == 0
+                    U[l+1][j,k] = kernel(
+                        xs[:, ndj.inds], 
+                        ws[:, ndk.inds[F.sk]]
+                    )
+                else
+                    U[l+1][j,k] = M[:, F.sk]
+                end
+                Vt[l+1][j,k] = [Matrix(I, r, r) F.T][:, invperm(F[:p])]
                 # preallocate beta based on factor size
                 beta[l+1][j,k] = Vector{ComplexF64}(undef, r)
                 
@@ -88,6 +97,8 @@ function butterfly_factorize(
 
     return ButterflyMatrix(U, Vt, Tx, Tw, L, max_width, beta)
 end
+
+subsample_inds(inds, s) = (s >= length(inds)) ? inds : inds[round.(Int64, range(1, length(inds), s))]
 
 parent_ind(d, j, k) = floor(Int64, (j-1)/k^d)+1
 child_inds(d, j, k) = (j-1)*(k^d) .+ (1:(k^d))

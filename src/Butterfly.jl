@@ -1,6 +1,6 @@
 module Butterfly
 
-    using LinearAlgebra, StaticArrays, Printf
+    using LinearAlgebra, StaticArrays, LowRankApprox, Printf
 
     export build_tree, root, butterfly_factorize
 
