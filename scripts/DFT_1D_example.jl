@@ -4,14 +4,14 @@ import Random: randperm
 include("util.jl")
 
 # size of DFT to factorize
-n = 2^10
+n = 2^14
 m = n
 # number of levels in factorization
-L = Int(log(2, min(n,m))) - 3
+L = Int(log(2, min(n,m))) - 4
 # whether to use bit-reversal permutation to get exact butterfly rank 1
-permute = true
+permute = false
 # tolerance for factorization
-tol = 1e-3
+tol = 1e-8
 
 # xs = reshape(2pi*rand(n), 1, :)
 # ws = reshape(m*rand(m), 1, :)
@@ -34,12 +34,12 @@ if permute
 end
 
 # kernel(xs, ws) = Float64.((n/2pi * xs) .≈ ws')
-kernel(xs, ws) = exp.(-im*xs'*ws)
+kernel(xs, ws) = cispi.(-xs'*ws/pi)
 # kernel(xs, ws) = besselj.(0, xs'*ws)
 
 B = butterfly_factorize(
     kernel, xs, ws; L=L,
-    Tx=Tx, Tw=Tw, tol=tol, verbose=true
+    Tx=Tx, Tw=Tw, tol=tol, verbose=true, os=1.2
     );
 
 if n < 20_000

@@ -20,6 +20,7 @@ function butterfly_factorize(
     Tx = root(Tx)
     Tw = root(Tw)
 
+    sk_inds   = Vector{Matrix{Vector{Int64}}}(undef, L+1)
     U    = Vector{Matrix{Matrix{ComplexF64}}}(undef, L+1)
     Vt   = Vector{Matrix{Matrix{ComplexF64}}}(undef, L+1)
     beta = Vector{Matrix{Vector{ComplexF64}}}(undef, L+1)
@@ -35,6 +36,7 @@ function butterfly_factorize(
         end
         max_rank, min_rank = -1, max(nx, nw)
         level_width = 0
+        sk_inds[l+1]   = Matrix{Vector{Int64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
         U[l+1]    = Matrix{Matrix{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
         Vt[l+1]   = Matrix{Matrix{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
         beta[l+1] = Matrix{Vector{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
@@ -44,35 +46,30 @@ function butterfly_factorize(
                 pj = parent_ind(Dx, j, Kx)
                 if l == 0
                     # evaluate kernel on block column to build first factor
-                    # s = isinf(os) ? Inf : ceil(Int64, os*length(ndk.inds))
-                    M = kernel(
-                            xs[:, ndj.inds], 
-                            ws[:, ndk.inds]
-                        )
+                    s = isinf(os) ? Inf : ceil(Int64, os*length(ndk.inds))
+                    
+                    all_inds = ndk.inds
                 else
                     # compute nested factors from previous level
-                    # s = isinf(os) ? Inf : ceil(Int64, os*sum(size.([U[l][pj,ck][subsample_inds(ndj.loc_inds, s), :] for ck in cks], 2))*Kw)
-                    # M = kernel(
-                    #     xs[:, ndj.parent.inds],
-                    #     ws[:, vcat(getfield.(ndk.children, :inds)...)]
-                    #     )
-                    M = hcat(
-                            [U[l][pj,ck][ndj.loc_inds, :] for ck in cks]...
-                        )
+                    s = isinf(os) ? Inf : ceil(Int64, os*sum(length.([sk_inds[l][pj,ck] for ck in cks]))*Kw)
+
+                    all_inds = vcat([sk_inds[l][pj,ck] for ck in cks]...)
                 end
+                M = kernel(
+                        xs[:, subsample_inds(ndj.inds, s)], 
+                        ws[:, all_inds]
+                    )
                 # compute factorization
                 F = idfact(M, rtol=tol)
                 # compute epsilon rank of block
                 r = length(F.sk)
+                # write skeleton indices
+                sk_inds[l+1][j,k] = all_inds[F.sk]
                 # write factors
-                if l == 0
-                    U[l+1][j,k] = kernel(
-                        xs[:, ndj.inds], 
-                        ws[:, ndk.inds[F.sk]]
-                    )
-                else
-                    U[l+1][j,k] = M[:, F.sk]
-                end
+                U[l+1][j,k] = kernel(
+                    xs[:, ndj.inds], 
+                    ws[:, sk_inds[l+1][j,k]]
+                )
                 Vt[l+1][j,k] = [Matrix(I, r, r) F.T][:, invperm(F[:p])]
                 # preallocate beta based on factor size
                 beta[l+1][j,k] = Vector{ComplexF64}(undef, r)

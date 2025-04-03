@@ -44,7 +44,7 @@ function split!(node::Tree{D, K, T}, ch_inds) where {D, K, T}
             child_boundary(node, I.I),
             node.inds[ch_inds .== i],
             eachindex(node.inds)[ch_inds .== i],
-            nothing, node, nothing
+            nothing, node, nothing, K
             ) for (i, I) in enumerate(CartesianIndices(ntuple(_ -> K, D)))
         ]
 end
@@ -81,7 +81,7 @@ function build_tree(pts::Matrix{T};
     return tree
 end
 
-function refine_tree!(tree::Tree{D, K, T}, pts::Matrix{T}; 
+function refine_tree!(tree::Tree{D, K, T}, pts::Matrix; 
     max_levels=Inf, min_pts=1
     ) where{D, K, T}
     n = size(pts, 2)

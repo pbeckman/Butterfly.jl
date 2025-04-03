@@ -4,12 +4,14 @@ import Base.Iterators: product, partition
 include("util.jl")
 
 # size of DFT to factorize
-n1d = 2^7
+n1d = 2^8
 n   = n1d^2
 # number of levels in factorization
-L = Int(log(4, n)) - 4
+L = Int(log(4, n)) - 2
 # whether to use bit-reversal permutation to get exact butterfly rank 1
 permute = false
+# whether to subdivide frequencies by index rather than norm
+by_index = true
 # tolerance for factorization
 tol = 1e-3
 
@@ -28,15 +30,22 @@ Tx = build_tree(
     )
 
 # number of columns to use in factorization
-m  = sum(lams .<= (n1d-1)^2)
+m  = sum(lams .<= div(n1d,2)^2)
+ks = Matrix(reshape(1:m, 1, :))
 sp = sortperm(lams)[1:m]
-Tw = build_tree(
-    reshape(lams[sp], 1, :), max_levels=L, min_pts=1, sort=false, k=4
-    )
+if by_index
+    Tw = build_tree(
+        ks, max_levels=L, min_pts=1, sort=false, k=4, 
+        ll=SVector{1, Float64}(1), widths=SVector{1, Float64}(m-1)
+        )
+else
+    Tw = build_tree(
+        reshape(lams[sp], 1, :), max_levels=L, min_pts=1, sort=false, k=4
+        )
+end
 
 # hack which maps column index k back to ws to evaluate kernel
-ks = reshape(1:m, 1, :)
-kernel(xs, ks) = exp.(im*xs'*ws[:,sp[ks[:]]])
+kernel(xs, ks) = cispi.(xs'*ws[:,sp[ks[:]]]/pi)
 
 if permute
     bitrev1d = [
@@ -47,12 +56,12 @@ if permute
         collect(v[bitrev1d] for v in partition(1:n1d^2, n1d))[bitrev1d]...
         )
     xs .= xs[:,bitrev]
-    ws .= ws[:,bitrev]
+    # ws .= ws[:,bitrev]
 end
 
 B = butterfly_factorize(
     kernel, xs, ks; 
-    L=L, Tx=Tx, Tw=Tw, tol=tol, verbose=true
+    L=L, Tx=Tx, Tw=Tw, tol=tol, os=Inf, verbose=true
     );
 
 v = randn(m)
