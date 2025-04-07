@@ -40,9 +40,13 @@ function mul!(dest::Vector, B::ButterflyMatrix{Dx, Kx, Dw, Kw}, src::Vector) whe
                 if l == 0
                     B.beta[l+1][j,k] .= B.Vt[l+1][j,k] * view(src, ndk.inds)
                 else
-                    B.beta[l+1][j,k] .= B.Vt[l+1][j,k] * vcat(
-                        [B.beta[l][pj,ck] for ck in cks]...
-                        )
+                    k0 = 1
+                    B.beta[l+1][j,k] .= 0.0
+                    for ck in cks
+                        sk = length(B.beta[l][pj,ck])
+                        B.beta[l+1][j,k] .+= B.Vt[l+1][j,k][:, k0:(k0+sk-1)] * B.beta[l][pj,ck]
+                        k0 += sk
+                    end
                 end
                 if l == L
                     dest[ndj.inds] .= B.U[l+1][j,k] * B.beta[l+1][j,k]

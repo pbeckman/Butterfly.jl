@@ -4,14 +4,14 @@ import Random: randperm
 include("util.jl")
 
 # size of DFT to factorize
-n = 2^14
+n = 2^16
 m = n
 # number of levels in factorization
 L = Int(log(2, min(n,m))) - 4
 # whether to use bit-reversal permutation to get exact butterfly rank 1
 permute = false
 # tolerance for factorization
-tol = 1e-8
+tol = 1e-4
 
 # xs = reshape(2pi*rand(n), 1, :)
 # ws = reshape(m*rand(m), 1, :)
@@ -39,7 +39,7 @@ kernel(xs, ws) = cispi.(-xs'*ws/pi)
 
 B = butterfly_factorize(
     kernel, xs, ws; L=L,
-    Tx=Tx, Tw=Tw, tol=tol, verbose=true, os=1.2
+    Tx=Tx, Tw=Tw, tol=tol, verbose=1, method=:ID, os=2
     );
 
 if n < 20_000
@@ -47,7 +47,7 @@ if n < 20_000
     v  = randn(n)
     w  = A*v
     wb = B*v
-    @printf("\nRelative apply error  : %.2e\n", norm(w - wb) / norm(w))
+    @printf("Relative apply error  : %.2e\n", norm(w - wb) / norm(w))
     @printf(
         "Size of dense matrix  : %s\n", 
         Base.format_bytes(Base.summarysize(A))

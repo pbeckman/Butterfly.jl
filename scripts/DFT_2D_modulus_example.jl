@@ -7,13 +7,13 @@ include("util.jl")
 n1d = 2^8
 n   = n1d^2
 # number of levels in factorization
-L = Int(log(4, n)) - 2
+L = floor(Int64, log(4, n)) - 3
 # whether to use bit-reversal permutation to get exact butterfly rank 1
 permute = false
 # whether to subdivide frequencies by index rather than norm
 by_index = true
 # tolerance for factorization
-tol = 1e-3
+tol = 1e-2
 
 # compute gridded points and frequencies
 xs1d = range(0, 2pi, n1d+1)[1:end-1]
@@ -61,29 +61,32 @@ end
 
 B = butterfly_factorize(
     kernel, xs, ks; 
-    L=L, Tx=Tx, Tw=Tw, tol=tol, os=Inf, verbose=true
+    L=L, Tx=Tx, Tw=Tw, tol=tol, verbose=true, method=:ID, os=1.1
     );
 
 v = randn(m)
 
-println("\nButterfly matvec : ")
-wb = @btime $B*$v
-fac_size = 
 @printf(
-    "Size of factorization : %s\n", 
+    "\nSize of factorization : %s\n", 
     Base.format_bytes(Base.summarysize(B.Vt) + Base.summarysize(B.U))
     )
+println("Butterfly matvec : ")
+wb = @btime $B*$v
 
-if n < 20_000
-    A  = kernel(xs, ks)
-    println("\nDense matvec : ")
-    w  = @btime $A*$v
-    @printf(
-        "Size of dense matrix : %s\n", 
-        Base.format_bytes(Base.summarysize(A))
+dense_size = sizeof(eltype(B.Vt[1][1,1])) * prod(size(B))
+
+@printf(
+        "\nSize of dense matrix : %s\n", 
+        Base.format_bytes(dense_size)
         )
+if n < 50_000
+    A  = kernel(xs, ks)
+    println("Dense matvec : ")
+    w  = @btime $A*$v
     @printf("\nRelative apply error  : %.2e\n", norm(w - wb) / norm(w))
 end
+
+
 
 ##
 

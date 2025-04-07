@@ -1,6 +1,7 @@
 module Butterfly
 
     using LinearAlgebra, StaticArrays, LowRankApprox, Printf
+    import Random: seed!, randperm
 
     export build_tree, root, butterfly_factorize
 
