@@ -20,7 +20,7 @@ function butterfly_factorize(
     Tx = root(Tx)
     Tw = root(Tw)
 
-    M    = Matrix{ComplexF64}(undef, nx, 2 * nw / Kw^(Dw*L))
+    sk   = Vector{Matrix{Vector{Int64}}}(undef, L+1)
     U    = Vector{Matrix{Matrix{ComplexF64}}}(undef, L+1)
     Vt   = Vector{Matrix{Matrix{ComplexF64}}}(undef, L+1)
     beta = Vector{Matrix{Vector{ComplexF64}}}(undef, L+1)
@@ -38,6 +38,7 @@ function butterfly_factorize(
         max_rank, min_rank = -1, max(nx, nw)
         level_width = 0
         
+        sk[l+1]   = Matrix{Vector{Int64}}(undef,      Kx^(Dx*l), Kw^(Dw*(L-l)))
         U[l+1]    = Matrix{Matrix{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
         Vt[l+1]   = Matrix{Matrix{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
         beta[l+1] = Matrix{Vector{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
@@ -46,11 +47,15 @@ function butterfly_factorize(
             for (j, ndj) in enumerate(LevelIterator(Tx, l))
                 pj = parent_ind(Dx, j, Kx)
                 # write factors
-                U[l+1][j,k], Vt[l+1][j,k], r = get_factors(
-                    xs, ws, kernel, ndj, ndk, 
-                    (l==0) ? nothing : view(U[l], pj, cks), M,
+                Ujk, Vt[l+1][j,k], skjk, r = get_factors(
+                    xs, ws, kernel, ndj, ndk,
+                    (l==0) ? nothing : view(U[l],  pj, cks),
+                    (l==0) ? nothing : view(sk[l], pj, cks), 
+                    l, L,
                     method=method, tol=tol, verbose=verbose; kwargs...
                     )
+                if !isnothing(Ujk);   U[l+1][j,k] = Ujk;  end
+                if !isnothing(skjk); sk[l+1][j,k] = skjk; end
                 # preallocate beta based on factor size
                 beta[l+1][j,k] = Vector{ComplexF64}(undef, r)
                 
@@ -75,7 +80,7 @@ function butterfly_factorize(
         @printf("\ntotal factorization time for %i by %i matrix : %.2e s\n\n", nx, nw, tt)
     end
 
-    return ButterflyMatrix(U, Vt, Tx, Tw, L, max_width, beta)
+    return ButterflyMatrix(U, Vt, sk, Tx, Tw, L, max_width, beta)
 end
 
 subsample_inds(inds, s) = (s >= length(inds)) ? inds : inds[round.(Int64, range(1, length(inds), s))]
@@ -84,73 +89,54 @@ parent_ind(d, j, k) = floor(Int64, (j-1)/k^d)+1
 child_inds(d, j, k) = (j-1)*(k^d) .+ (1:(k^d))
 
 function get_factors(
-    xs, ws, kernel, ndj, ndk, Uls, M; 
+    xs, ws, kernel, ndj, ndk, Uls, sks, l, L; 
     method=:ID, tol=1e-15, verbose=0, kwargs...
     )
     if method == :ID
         if haskey(kwargs, :os)
-            os = kwargs[:os]
-            nj = length(ndj.inds)
+            os    = kwargs[:os]
+            nj    = length(ndj.inds)
+            kinds = (l==0) ? ndk.inds : vcat(sks...)
+            nk    = length(kinds)
+            njss  = min(nj, ceil(Int64, os * nk))
+            ji    = randperm(nj)[1:njss]
             
-            if isnothing(Uls)
-                nk   = length(ndk.inds)
-                njss = min(nj, ceil(Int64, os * nk))
-                ji   = randperm(nj)[1:njss]
-                M    = reshape(M, njss, :)
-                M[:,1:nk] .= kernel(
-                    view(xs,:,view(ndj.inds,ji)), 
-                    view(ws,:,ndk.inds)
-                    )
-
-                if verbose >= 2
-                    @printf("\tsubsampling %i by %i block to size %i by %i\n", nj, nk, size(Mss)...)
-                end
-            else
-                nk   = sum(size.(Uls,2)) 
-                njss = min(nj, ceil(Int64, os * nk))
-                ji   = randperm(nj)[1:njss]
-                M    = reshape(M, njss, :)
-                k0   = 1
-                for Ul in Uls
-                    sk = size(Ul, 2)
-                    M[:,k0:(k0+sk-1)] .= view(Ul, view(ndj.loc_inds,ji), :)
-                    k0 += sk
-                end
-                    
-                if verbose >= 2
-                    @printf("\tsubsampling %i by %i block to size %i by %i\n", nj, sum(size.(Uls, 2)), size(Mss)...)
-                end
-            end
-
-            F = idfact!(view(M,:,1:nk), rtol=tol)
-        end
-
-        M = reshape(M, length(ndj.inds), :)
-        if isnothing(Uls)
-            # evaluate kernel on block column to build first factor
-            M[:,1:length(ndk.inds)] .= kernel(
-                view(xs,:,ndj.inds), 
-                view(ws,:,ndk.inds)
+            Mss = kernel(
+                view(xs, :, view(ndj.inds, ji)), 
+                view(ws, :, kinds)
                 )
-        else
-            # compute nested factors from previous level
-            k0 = 1
-            for Ul in Uls
-                sk = size(Ul, 2)
-                M[:,k0:(k0+sk-1)] .= view(Ul, ndj.loc_inds, :)
-                k0 += sk
+
+            F  = idfact!(Mss, rtol=tol)
+            sk = kinds[F.sk]
+
+            if l != L
+                U = nothing
+            else
+                U = kernel(
+                    view(xs, :, ndj.inds),
+                    view(ws, :, sk)
+                    )
             end
+        else
+            if l == 0
+                M = kernel(
+                    view(xs, :, ndj.inds), 
+                    view(ws, :, ndk.inds)
+                    )
+            else
+                M = hcat([Ul[ndj.loc_inds, :] for Ul in Uls]...)
+            end
+
+            F  = idfact!(M, rtol=tol)
+            U  = M[:, F.sk]
+            sk = ndk.inds[F.sk]
         end
         
-        if !haskey(kwargs, :os)
-            F = idfact!(view(M,:,1:nk), rtol=tol)
-        end
-        U = M[:, F.sk]
-
-        r  = length(F.sk)
+        
+        r  = length(sk)
         Vt = [Matrix(I, r, r) F.T][:, invperm(F[:p])]
     elseif method == :SVD
-        if isnothing(Uls)
+        if l == 0
             # evaluate kernel on block column to build first factor
             M = kernel(view(xs,:,ndj.inds), view(ws,:,ndk.inds))
         else
@@ -173,7 +159,8 @@ function get_factors(
 
         U  = F.U[:,1:r] .* F.S[1:r]'
         Vt = F.Vt[1:r,:]
+        sk = nothing
     end
 
-    return U, Vt, r 
+    return U, Vt, sk, r 
 end

@@ -4,6 +4,7 @@ mutable struct ButterflyMatrix{Dx, Kx, Dw, Kw, T}
     # and block column k at level l, or the basis if l ∈ {0, L}
     U         :: Vector{Matrix{Matrix{ComplexF64}}}
     Vt        :: Vector{Matrix{Matrix{ComplexF64}}}
+    sk        :: Vector{Matrix{Vector{Int64}}}
     # trees in x and w
     Tx        :: Tree{Dx, Kx, T}
     Tw        :: Tree{Dw, Kw, T}
