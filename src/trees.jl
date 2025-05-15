@@ -24,7 +24,9 @@ Tree(ll::SVector{D, T}, width::SVector{D, T}, n::Int64, k::Int64) where {D, T} =
 @inline isleaf(tree::Tree) = tree.children === nothing
 @inline isroot(tree::Tree) = tree.parent === nothing
 
-show(io::IO, tree::Tree{D, K}) where {D, K} = print(io, "$D-dimensional $K-ary tree on $(tree.boundary)")
+Base.show(io::IO, tree::Tree{D, K}) where {D, K} = print(io, "$(depth(tree)+1)-level $D-dimensional $K-ary tree on $(
+    join(collect.(zip(tree.boundary.ll, tree.boundary.ll+tree.boundary.widths)), " × ")
+)")
 
 @inline getindex(tree::Tree, I) = getindex(tree.children, I)
 @inline getindex(tree::Tree, I...) = getindex(tree.children, I...)
@@ -68,7 +70,7 @@ function build_tree(pts::Matrix{T};
     # build tree and add pointers across each level
     tree = Tree(ll, widths, n, k)
     refine_tree!(tree, pts; max_levels=max_levels, min_pts=min_pts)
-    add_next_pointers!(tree)
+    add_next_pointers!(tree) # TODO : only works if tree is uniform?
     
     if sort
         perm = tree.inds[

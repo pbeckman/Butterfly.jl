@@ -4,25 +4,33 @@ import Random: randperm
 include("util.jl")
 
 # size of DFT to factorize
-n = 2^16
+n = 2^9
 m = n
 # number of levels in factorization
-L = Int(log(2, min(n,m))) - 4
-# whether to use bit-reversal permutation to get exact butterfly rank 1
+L = Int(log(2, min(n,m))) - 3
+# whether to use nonuniform points and frequencies
+nonuniform = true
+# whether to use bit-reversal permutation to get exact butterfly rank 1 for DFT
 permute = false
 # tolerance for factorization
 tol = 1e-4
+# kernel of matrix to be factorized -- replace with your own if desired
+kernel(xs, ws) = cispi.(-xs'*ws/pi)
+# kernel(xs, ws) = besselj.(0, xs'*ws)
 
-# xs = reshape(2pi*rand(n), 1, :)
-# ws = reshape(m*rand(m), 1, :)
-xs = reshape(collect(range(0, 2pi, n+1)[1:end-1]), 1, :)
-ws = reshape(collect(0.0:(m-1)), 1, :)
+if nonuniform
+    xs = reshape(2pi*rand(n), 1, :)
+    ws = reshape(m*rand(m), 1, :)
+else
+    xs = reshape(collect(range(0, 2pi, n+1)[1:end-1]), 1, :)
+    ws = reshape(collect(0.0:(m-1)), 1, :)
+end
 
-Tx = build_tree(
+trx = build_tree(
     xs, 
     max_levels=L, min_pts=1, sort=false
     )
-Tw = build_tree(ws, max_levels=L, min_pts=1, sort=false)
+trw = build_tree(ws, max_levels=L, min_pts=1, sort=false)
 
 if permute
     bitrev = [
@@ -33,26 +41,22 @@ if permute
     ws .= ws[:,bitrev]
 end
 
-# kernel(xs, ws) = Float64.((n/2pi * xs) .≈ ws')
-kernel(xs, ws) = cispi.(-xs'*ws/pi)
-# kernel(xs, ws) = besselj.(0, xs'*ws)
-
 B = butterfly_factorize(
     kernel, xs, ws; L=L,
-    Tx=Tx, Tw=Tw, tol=tol, verbose=1, method=:ID, os=2
+    trx=trx, trw=trw, tol=tol, verbose=1, method=:ID#, os=3
     );
 
-if n < 20_000
+if n < 10_000
     A  = kernel(xs, ws)
     v  = randn(n)
     w  = A*v
     wb = B*v
     @printf("Relative apply error  : %.2e\n", norm(w - wb) / norm(w))
-    @printf(
-        "Size of dense matrix  : %s\n", 
-        Base.format_bytes(Base.summarysize(A))
-    )
 end
+@printf(
+        "\nSize of dense matrix : %s\n", 
+        Base.format_bytes(sizeof(eltype(B.Vt[1][1,1])) * prod(size(B))
+        ))
 
 @printf(
     "Size of factorization : %s\n", 

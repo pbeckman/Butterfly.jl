@@ -2,28 +2,28 @@
 function butterfly_factorize(
     kernel, xs, ws;
     tol=1e-8, L=nothing, 
-    Tx::Tree{Dx, Kx, T}=nothing, Tw::Tree{Dw, Kw, T}=nothing, 
-    verbose=0, stop_at_level=Inf, method=:ID, kwargs...
-    ) where {Dx, Kx, Dw, Kw, T}
+    trx::Tree{Dx, Kx, Tx}=nothing, trw::Tree{Dw, Kw, Tw}=nothing, 
+    verbose=0, stop_at_level=Inf, method=:ID, T=ComplexF64, kwargs...
+    ) where {Dx, Kx, Dw, Kw, Tx, Tw}
     nx = size(xs, 2)
     nw = size(ws, 2)
 
     if isnothing(L)
         L = max(0, floor(Int64, max(log(Kx^Dx, nx), log(Kw^Dw, nw))) - 4)
     end
-    if isnothing(Tx)
-        Tx = build_tree(xs, max_levels=L, min_pts=-1)
+    if isnothing(trx)
+        trx = build_tree(xs, max_levels=L, min_pts=-1)
     end
-    if isnothing(Tw)
-        Tw = build_tree(ws, max_levels=L, min_pts=-1)
+    if isnothing(trw)
+        trw = build_tree(ws, max_levels=L, min_pts=-1)
     end
-    Tx = root(Tx)
-    Tw = root(Tw)
+    trx = root(trx)
+    trw = root(trw)
 
     sk   = Vector{Matrix{Vector{Int64}}}(undef, L+1)
-    U    = Vector{Matrix{Matrix{ComplexF64}}}(undef, L+1)
-    Vt   = Vector{Matrix{Matrix{ComplexF64}}}(undef, L+1)
-    beta = Vector{Matrix{Vector{ComplexF64}}}(undef, L+1)
+    U    = Vector{Matrix{Matrix{T}}}(undef, L+1)
+    Vt   = Vector{Matrix{Matrix{T}}}(undef, L+1)
+    beta = Vector{Matrix{Vector{T}}}(undef, L+1)
 
     if verbose >= 1
         @printf("\nlevel  |         ranks         time\n-------|---------------------------------------\n")
@@ -33,18 +33,18 @@ function butterfly_factorize(
     
     tt = @elapsed for l=0:L
         if l == stop_at_level
-            return ButterflyMatrix(U, Vt, Tx, Tw, L, max_width, beta)
+            return ButterflyMatrix(U, Vt, sk, trx, trw, L, max_width, beta)
         end
         max_rank, min_rank = -1, max(nx, nw)
         level_width = 0
         
         sk[l+1]   = Matrix{Vector{Int64}}(undef,      Kx^(Dx*l), Kw^(Dw*(L-l)))
-        U[l+1]    = Matrix{Matrix{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
-        Vt[l+1]   = Matrix{Matrix{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
-        beta[l+1] = Matrix{Vector{ComplexF64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
-        t = @elapsed for (k, ndk) in enumerate(LevelIterator(Tw, L-l))
+        U[l+1]    = Matrix{Matrix{T}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
+        Vt[l+1]   = Matrix{Matrix{T}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
+        beta[l+1] = Matrix{Vector{T}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
+        t = @elapsed for (k, ndk) in enumerate(LevelIterator(trw, L-l))
             cks = child_inds(Dw, k, Kw)
-            for (j, ndj) in enumerate(LevelIterator(Tx, l))
+            for (j, ndj) in enumerate(LevelIterator(trx, l))
                 pj = parent_ind(Dx, j, Kx)
                 # write factors
                 Ujk, Vt[l+1][j,k], skjk, r = get_factors(
@@ -57,7 +57,7 @@ function butterfly_factorize(
                 if !isnothing(Ujk);   U[l+1][j,k] = Ujk;  end
                 if !isnothing(skjk); sk[l+1][j,k] = skjk; end
                 # preallocate beta based on factor size
-                beta[l+1][j,k] = Vector{ComplexF64}(undef, r)
+                beta[l+1][j,k] = Vector{T}(undef, r)
                 
                 # update max and min ranks
                 min_rank = min(min_rank, r)
@@ -68,7 +68,7 @@ function butterfly_factorize(
         end
         if l > 0
             # free memory from intermediate factors
-            U[l] = Matrix{Matrix{ComplexF64}}(undef, 0, 0)
+            U[l] = Matrix{Matrix{T}}(undef, 0, 0)
         end
         max_width = max(max_width, level_width)
 
@@ -77,10 +77,10 @@ function butterfly_factorize(
         end
     end
     if verbose >= 1
-        @printf("\ntotal factorization time for %i by %i matrix : %.2e s\n\n", nx, nw, tt)
+        @printf("\ntotal factorization time for %i by %i matrix to tolerance %.1e: %.2e s\n\n", nx, nw, tol, tt)
     end
 
-    return ButterflyMatrix(U, Vt, sk, Tx, Tw, L, max_width, beta)
+    return ButterflyMatrix(U, Vt, sk, trx, trw, L, max_width, beta)
 end
 
 subsample_inds(inds, s) = (s >= length(inds)) ? inds : inds[round.(Int64, range(1, length(inds), s))]
