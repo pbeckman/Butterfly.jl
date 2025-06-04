@@ -1,24 +1,14 @@
 
 function butterfly_factorize(
     kernel, xs, ws;
-    tol=1e-8, L=nothing, 
-    trx::Tree{Dx, Kx, Tx}=nothing, trw::Tree{Dw, Kw, Tw}=nothing, 
+    tol=1e-8, 
+    L=max(0, floor(Int64, max(log(Kx^Dx, nx), log(Kw^Dw, nw))) - 3), 
+    trx::Tree{Dx, Kx, Tx}=build_tree(xs, max_levels=L, min_pts=-1), 
+    trw::Tree{Dw, Kw, Tw}=build_tree(ws, max_levels=L, min_pts=-1), 
     verbose=0, stop_at_level=Inf, method=:ID, T=ComplexF64, kwargs...
     ) where {Dx, Kx, Dw, Kw, Tx, Tw}
     nx = size(xs, 2)
     nw = size(ws, 2)
-
-    if isnothing(L)
-        L = max(0, floor(Int64, max(log(Kx^Dx, nx), log(Kw^Dw, nw))) - 4)
-    end
-    if isnothing(trx)
-        trx = build_tree(xs, max_levels=L, min_pts=-1)
-    end
-    if isnothing(trw)
-        trw = build_tree(ws, max_levels=L, min_pts=-1)
-    end
-    trx = root(trx)
-    trw = root(trw)
 
     sk   = Vector{Matrix{Vector{Int64}}}(undef, L+1)
     U    = Vector{Matrix{Matrix{T}}}(undef, L+1)
@@ -30,7 +20,8 @@ function butterfly_factorize(
     end
 
     max_width = -1
-    
+    trx = root(trx)
+    trw = root(trw)
     tt = @elapsed for l=0:L
         if l == stop_at_level
             return ButterflyMatrix(U, Vt, sk, trx, trw, L, max_width, beta)
@@ -38,10 +29,10 @@ function butterfly_factorize(
         max_rank, min_rank = -1, max(nx, nw)
         level_width = 0
         
-        sk[l+1]   = Matrix{Vector{Int64}}(undef,      Kx^(Dx*l), Kw^(Dw*(L-l)))
-        U[l+1]    = Matrix{Matrix{T}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
-        Vt[l+1]   = Matrix{Matrix{T}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
-        beta[l+1] = Matrix{Vector{T}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
+        sk[l+1]   = Matrix{Vector{Int64}}(undef, Kx^(Dx*l), Kw^(Dw*(L-l)))
+        U[l+1]    = Matrix{Matrix{T}}(undef,     Kx^(Dx*l), Kw^(Dw*(L-l)))
+        Vt[l+1]   = Matrix{Matrix{T}}(undef,     Kx^(Dx*l), Kw^(Dw*(L-l)))
+        beta[l+1] = Matrix{Vector{T}}(undef,     Kx^(Dx*l), Kw^(Dw*(L-l)))
         t = @elapsed for (k, ndk) in enumerate(LevelIterator(trw, L-l))
             cks = child_inds(Dw, k, Kw)
             for (j, ndj) in enumerate(LevelIterator(trx, l))
@@ -127,11 +118,10 @@ function get_factors(
                 M = hcat([Ul[ndj.loc_inds, :] for Ul in Uls]...)
             end
 
-            F  = idfact!(M, rtol=tol)
+            F  = idfact(M, rtol=tol)
             U  = M[:, F.sk]
             sk = ndk.inds[F.sk]
         end
-        
         
         r  = length(sk)
         Vt = [Matrix(I, r, r) F.T][:, invperm(F[:p])]
