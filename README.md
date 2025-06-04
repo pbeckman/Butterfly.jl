@@ -35,7 +35,7 @@ cs = randn(10_000)
 # compute butterfly factorization
 B = butterfly_factorize(kernel, xs, ws; tol=tol)
 
-# compute Hankel transform by applying factorization to a vector
+# compute NUFFT by applying factorization to a vector
 gs = B * cs
 ```
 See the `scripts` directory for more detailed, heavily commented demos. 
