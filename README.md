@@ -14,8 +14,8 @@ include Fourier, Hankel, Legendre, Hermite, Laguerre, and Prolate Spheroidal
 Wave Function transforms and their nonuniform analogs.
 
 A minimal demo to factorize the nonuniform Fourier transform matrix
-$\mathbf{\Phi}_{jk} := e^{i\omega_k x_j}$ from frequencies
-$\{\omega_k\}_{k=1}^m$ to points $\{x_j\}_{j=1}^n$ is as follows:
+$`\mathbf{\Phi}_{jk} := e^{i\omega_k x_j}`$ from frequencies
+$`\{\omega_k\}_{k=1}^m`$ to points $`\{x_j\}_{j=1}^n`$ is as follows:
 ```julia
 using Butterfly
 
