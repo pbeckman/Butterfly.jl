@@ -4,11 +4,11 @@ import Random: randperm
 include("util.jl")
 
 # size of DFT to factorize
-n = 2^12
+n = 2^2
 m = n
 
 # number of levels in factorization
-L = Int(log(2, min(n,m))) - 3
+L = Int(log(2, min(n,m))) - 0
 
 # whether to use nonuniform points and frequencies
 nonuniform = false
@@ -17,11 +17,11 @@ nonuniform = false
 permute = true
 
 # tolerance for factorization
-tol = 1e-4
+tol = 1e-8
 
 # kernel of matrix to be factorized -- replace with your own if desired
-# kernel(xs, ws) = cispi.(-xs'*ws/pi)
-kernel(xs, ws) = besselj.(0, xs'*ws)
+kernel(xs, ws) = cispi.(-xs'*ws/pi)
+# kernel(xs, ws) = besselj.(0, xs'*ws)
 
 if nonuniform
     xs = reshape(2pi*rand(n), 1, :)
@@ -31,8 +31,8 @@ else
     ws = reshape(collect(0.0:(m-1)), 1, :)
 end
 
-trx = build_tree(xs, max_levels=L, min_pts=1, sort=false)
-trw = build_tree(ws, max_levels=L, min_pts=1, sort=false)
+trx, _ = build_tree(xs, max_levels=L, min_pts=-1, sort=false)
+trw, _ = build_tree(ws, max_levels=L, min_pts=-1, sort=false)
 
 if permute
     bitrev = [
@@ -43,9 +43,11 @@ if permute
     ws .= ws[:,bitrev]
 end
 
+get_columns(ks) = kernel(xs, ws[:,ks])
+
 B = butterfly_factorize(
-    kernel, xs, ws; L=L,
-    trx=trx, trw=trw, tol=tol, verbose=1, method=:ID#, os=3
+    get_columns, xs, ws; L=L,
+    trx=trx, trw=trw, tol=tol, verbose=1, method=:ID, os=3
     );
 
 if n < 10_000

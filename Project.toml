@@ -4,13 +4,14 @@ authors = ["Paul Beckman <paul.beckman@cims.nyu.edu>"]
 version = "0.1.0"
 
 [deps]
+KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LowRankApprox = "898213cb-b102-5a47-900c-97e73b919f73"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-RegionTrees = "dee08c22-ab7f-5625-9660-a9af2021b33f"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
+KrylovKit = "0.10.2"
 LowRankApprox = "0.5.5"
 Random = "1.11.0"

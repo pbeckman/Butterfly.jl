@@ -20,28 +20,27 @@ end
 Base.size(B::ButterflyMatrix) = (length(B.trx.inds), length(B.trw.inds))
 Base.size(B::ButterflyMatrix, j) = size(B)[j]
 
+Base.show(io::IO, B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number} = print(io, "$(B.level)-level $T-type butterfly matrix of size $(size(B,1)) × $(size(B,2))")
+
+Base.adjoint(B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number} = Adjoint{T, ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}}(B)
+
 function LinearAlgebra.:*(B::ButterflyMatrix, src::Vector)
     dest = Vector{ComplexF64}(undef, size(B, 1))
     return mul!(dest, B, src)
 end
 
-# function sparse(B::ButterflyMatrix{dx, dw}, fac::Symbol, l::Int64) where{dx, dw}
-#     blks = getfield(B, fac)[l+1]
-    
-# end
-
-function LinearAlgebra.mul!(dest::Vector, B::ButterflyMatrix{Dx, Kx, Dw, Kw}, src::Vector) where{Dx, Kx, Dw, Kw}
+function LinearAlgebra.mul!(dest::Vector, B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}, src::Vector) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number}
     L = B.level
     k0, sk = -1, -1
     for l=0:L
         for (j, ndj) in enumerate(LevelIterator(B.trx, l))
-            pj = parent_ind(Dx, j, Kx)
+            pj = parent_ind(j, Kx)
             for (k, ndk) in enumerate(LevelIterator(B.trw, L-l))
-                cks = child_inds(Dw, k, Kw)
+                cks = child_inds(k, Kw)
                 if l == 0
                     mul!(
-                        B.beta[l+1][j,k], 
-                        B.Vt[l+1][j,k], 
+                        B.beta[1][j,k], 
+                        B.Vt[1][j,k], 
                         view(src, ndk.inds)
                         )
                 else
@@ -61,9 +60,51 @@ function LinearAlgebra.mul!(dest::Vector, B::ButterflyMatrix{Dx, Kx, Dw, Kw}, sr
                 if l == L
                     mul!(
                         view(dest, ndj.inds), 
-                        B.U[l+1][j,k], 
-                        B.beta[l+1][j,k]
+                        B.U[L+1][j,k], 
+                        B.beta[L+1][j,k]
                         )
+                end
+            end
+        end
+    end
+    return dest
+end
+
+function LinearAlgebra.mul!(dest::Vector, Bc::Adjoint{T, ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}}, src::Vector) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number}
+    B = Bc.parent
+    L = B.level
+    k0, sk = -1, -1
+    map(l -> map(v -> begin v .= 0; end, B.beta[l]), 1:(L+1))
+    for l=L:-1:0
+        for (j, ndj) in enumerate(LevelIterator(B.trx, l))
+            pj = parent_ind(j, Kx)
+            for (k, ndk) in enumerate(LevelIterator(B.trw, L-l))
+                cks = child_inds(k, Kw)
+                if l == L
+                    mul!(
+                        B.beta[L+1][j,k], 
+                        B.U[L+1][j,k]', 
+                        view(src, ndj.inds)
+                        )
+                end
+                if l == 0
+                    mul!(
+                        view(dest, ndk.inds), 
+                        B.Vt[1][j,k]', 
+                        B.beta[1][j,k]
+                        )
+                else
+                    k0 = 1
+                    for ck in cks
+                        sk = length(B.beta[l][pj,ck])
+                        mul!(
+                            B.beta[l][pj,ck],
+                            view(B.Vt[l+1][j,k], :, k0:(k0+sk-1))',
+                            B.beta[l+1][j,k],
+                            1, 1
+                        )
+                        k0 += sk
+                    end
                 end
             end
         end
