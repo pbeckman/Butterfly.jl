@@ -119,42 +119,48 @@ end
 
 ##
 
+include("/Users/beckman/.julia/config/custom_colors.jl")
+
+default(fontfamily="Computer Modern")
+gr(size=(300, 300))
+Plots.scalefontsizes()
+Plots.scalefontsizes(1.25)
+
 i1 = sum((!).(iszero.(sizes[1,:,1])))
 pl = plot(
     ns, sizes[1,:,2] / 2^30, 
     xlabel="n", ylabel="size (GB)",
     label="dense",
     line=2, marker=3, markerstrokewidth=0, dpi=300,
-    ylims=[1e-3, 5e0], 
-    xticks=([5e3, 1e4, 5e4],[L"5\times 10^3", L"10^4", L"5\times 10^4"]),
-    yticks=([1e-2, 1e-1, 1e0],[L"10^{-2}", L"10^{-1}", L"10^0"]), legend=:topleft
+    ylims=[1e-3, 1e1], xticks=([5e3, 1e4, 5e4],[L"5\,×10^3", L"10^4", L"5\,×10^4"]), c=scrungle[1]
     )
-for (t, tol) in enumerate(tols)
+for (t, (tol, label)) in enumerate(zip(tols, [L"ε=10^{-3}", L"ε=10^{-6}", L"ε=10^{-9}"]))
     plot!(pl,
         ns, sizes[t,:,1] / 2^30,
-        label=@sprintf("ε = %.0e", tol),
+        label=label,
         scale=:log10,
-        line=2, marker=3, markerstrokewidth=0
+        line=2, marker=3, markerstrokewidth=0, 
+        c=scrungle[t+1], legend=:topleft
         )
 end
 
-i0 = div(i1, 2)
-powers = [2, 3/2, 5/3]
-labels = [L"\mathcal{O}(n^2)", L"\mathcal{O}(n^{3/2})", L"\mathcal{O}(n^{5/3})"]
+i0 = 4 # div(i1, 2)
+powers = [3/2, 2, 5/3]
+labels = [L"\mathcal{O}(n^{3/2})", L"\mathcal{O}(n^2)", L"\mathcal{O}(n^{5/3})"]
 inds   = [(i0:i1), (i0:i1), (i0:i1)]
 
 plot!(pl, 
-    ns[inds[2]],
-    0.6 * sizes[1,inds[2][1],1]/2^30 * (ns[inds[2]]/ns[inds[2][1]]).^powers[2], 
-    label=labels[2], 
-    line=(2,:dash,:black)
-    )
-plot!(pl, 
     ns[inds[1]], 
-    1.5 * sizes[1,inds[1][1],2]/2^30 * (ns[inds[1]]/ns[inds[1][1]]).^powers[1], 
+    0.2 * sizes[1,inds[1][1],2]/2^30 * (ns[inds[1]]/ns[inds[1][1]]).^powers[1], 
     label=labels[1], 
-    line=(2,:dashdot,:gray)
+    line=(2,:dash,:black)
     ) 
+plot!(pl, 
+    ns[inds[2]],
+    6 * sizes[1,inds[2][1],1]/2^30 * (ns[inds[2]]/ns[inds[2][1]]).^powers[2], 
+    label=labels[2], 
+    line=(2,:dashdot,:gray)
+    )
 # plot!(pl, 
 #     ns[inds[3]], 
 #     0.25 * sizes[1,inds[3][1],1]/2^30 * (ns[inds[3]]/ns[inds[3][1]]).^powers[3], 
@@ -164,23 +170,26 @@ plot!(pl,
 display(pl)
 
 savefig(pl, "/Users/beckman/Downloads/" * filename * ".pdf")
-
 ##
+
+include("/Users/beckman/.julia/config/custom_colors.jl")
 
 default(fontfamily="Computer Modern")
 gr(size=(300, 300))
+Plots.scalefontsizes()
+Plots.scalefontsizes(1.25)
 
 pl = plot(
     tols, errs,
     line=2, marker=3, markerstrokewidth=0,
     xlabel=L"$\varepsilon$", 
     ylabel=L"rel. $\ell^2$ error",
-    label="",
+    label="BF-MHT",
     xscale=:log10, yscale=:log10, 
     ylims=(5e-16, 1e-1), xlims=(5e-16, 5e-2),
-    legend=:bottomright
+    legend=:bottomright, c=scrungle[6]
     )
-plot!([1e-16, 1], [1e-16, 1], line=(1, :black, :dash), label="")
+plot!([1e-16, 1], [1e-16, 1], line=(1, :black, :dash), label="ε")
 display(pl)
 
 savefig(pl, "/Users/beckman/Downloads/torus_accuracy_vs_tol.pdf")

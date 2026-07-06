@@ -10,11 +10,13 @@ SHT = false
 by_index = false
 
 # increasing number of points in space
-ns = 160_000 # round.(Int64, sqrt.(10 .^ range(3, 6, 10))).^2
+ns = 160_000 
+# ns = round.(Int64, sqrt.(10 .^ range(3, 6, 10))).^2
 # proportionally increasing number of eigenfunctions
-ms = round.(Int64, ns / 25)
+# ms = round.(Int64, ns / 25)
 # tolerances
-tols  = 10.0 .^ (-2:-1:-14) # [1e-3, 1e-6, 1e-9]
+tols = 10.0 .^ (-2:-1:-14)
+# tols = [1e-3, 1e-6, 1e-9]
 
 sizes = zeros(Float64, length(tols), length(ns), 2)
 errs  = zeros(Float64, length(tols), length(ns))
@@ -138,6 +140,8 @@ end
 
 ##
 
+include("/Users/beckman/.julia/config/custom_colors.jl")
+
 default(fontfamily="Computer Modern")
 gr(size=(300, 300))
 Plots.scalefontsizes()
@@ -149,33 +153,34 @@ pl = plot(
     xlabel="n", ylabel="size (GB)",
     label="dense",
     line=2, marker=3, markerstrokewidth=0, dpi=300,
-    ylims=[1e-4, 1e3], xticks=([1e3, 1e4, 1e5, 1e6],[L"10^3", L"10^4", L"10^5", L"10^6"])
+    ylims=[1e-4, 1e4], xticks=([1e3, 1e4, 1e5, 1e6],[L"10^3", L"10^4", L"10^5", L"10^6"]), c=scrungle[1]
     )
-for (t, tol) in enumerate(tols)
+for (t, (tol, label)) in enumerate(zip(tols, [L"ε=10^{-3}", L"ε=10^{-6}", L"ε=10^{-9}"]))
     plot!(pl,
         ns, sizes[t,:,1] / 2^30,
-        label=@sprintf("ε = %.0e", tol),
+        label=label,
         scale=:log10,
-        line=2, marker=3, markerstrokewidth=0
+        line=2, marker=3, markerstrokewidth=0, 
+        c=scrungle[t+1], legend=:topleft
         )
 end
 
-i0 = div(i1, 2)
-powers = [2, 3/2, 5/3]
-labels = [L"\mathcal{O}(n^2)", L"\mathcal{O}(n^{3/2})", L"\mathcal{O}(n^{5/3})"]
+i0 = 6 # div(i1, 2)
+powers = [3/2, 2, 5/3]
+labels = [L"\mathcal{O}(n^{3/2})", L"\mathcal{O}(n^2)", L"\mathcal{O}(n^{5/3})"]
 inds   = [(i0:i1), (i0:i1), (i0:i1)]
 
 plot!(pl, 
     ns[inds[1]], 
-    2 * sizes[1,inds[1][1],2]/2^30 * (ns[inds[1]]/ns[inds[1][1]]).^powers[1], 
+    0.07 * sizes[1,inds[1][1],2]/2^30 * (ns[inds[1]]/ns[inds[1][1]]).^powers[1], 
     label=labels[1], 
-    line=(2,:dashdot,:gray), legend=:bottomright
+    line=(2,:dash,:black)
     ) 
 plot!(pl, 
     ns[inds[2]],
-    0.4 * sizes[1,inds[2][1],1]/2^30 * (ns[inds[2]]/ns[inds[2][1]]).^powers[2], 
+    20 * sizes[1,inds[2][1],1]/2^30 * (ns[inds[2]]/ns[inds[2][1]]).^powers[2], 
     label=labels[2], 
-    line=(2,:dash,:black), legend=:bottomright
+    line=(2,:dashdot,:gray)
     )
 # plot!(pl, 
 #     ns[inds[3]], 
@@ -189,20 +194,24 @@ savefig(pl, "/Users/beckman/Downloads/" * filename * ".pdf")
 
 ##
 
+include("/Users/beckman/.julia/config/custom_colors.jl")
+
 default(fontfamily="Computer Modern")
 gr(size=(300, 300))
+Plots.scalefontsizes()
+Plots.scalefontsizes(1.25)
 
 pl = plot(
     tols, errs,
     line=2, marker=3, markerstrokewidth=0,
     xlabel=L"$\varepsilon$", 
     ylabel=L"rel. $\ell^2$ error",
-    label="",
+    label="BF-MHT",
     xscale=:log10, yscale=:log10, 
     ylims=(5e-16, 1e-1), xlims=(5e-16, 5e-2),
-    legend=:bottomright
+    legend=:bottomright, c=scrungle[6]
     )
-plot!([1e-16, 1], [1e-16, 1], line=(1, :black, :dash), label="")
+plot!([1e-16, 1], [1e-16, 1], line=(1, :black, :dash), label="ε")
 display(pl)
 
-savefig(pl, "/Users/beckman/Downloads/torus_accuracy_vs_tol.pdf")
+savefig(pl, "/Users/beckman/Downloads/DFT2D_accuracy_vs_tol.pdf")
