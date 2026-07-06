@@ -1,60 +1,54 @@
 using Butterfly, Plots, StaticArrays, LinearAlgebra, Printf, DelimitedFiles, BenchmarkTools, JLD, LaTeXStrings
 
 include("util.jl")
+tensor_to_vec(T) = vec(vcat([T[:,:,i] for i in axes(T,3)]...))
 
 # whether to subdivide frequencies by index rather than norm
 by_index = false
-# tolerance for factorization
-tol = 1e-3
-# whether to scale n (scale m if false)
-scale_n = true
+# tolerances
+tols  = 10.0 .^ (-2:-1:-14) # [1e-3, 1e-6, 1e-9]
 
-dir = "/Users/beckman/Downloads/torus/"
-ns_in, ms_in = [], []
+dir = "./torus/"
+ns, ms = [], []
 for fn in readdir(dir)
-    if fn[1:20] == "torus_eigenfunctions"
-        push!(ns_in, parse(Int64, match(r"(?<=_n)\d+", fn[21:end]).match))
-        push!(ms_in, parse(Int64, match(r"(?<=_m)\d+", fn[21:end]).match))
+    if length(fn) >= 20 && fn[1:20] == "torus_eigenfunctions"
+        push!(ns, parse(Int64, match(r"(?<=_n)\d+", fn[21:end]).match))
+        push!(ms, parse(Int64, match(r"(?<=_m)\d+", fn[21:end]).match))
     end
 end
-frac = ms_in[1] / ns_in[1]
-sort!(ns_in)
-sort!(ms_in)
+sort!(ns)
+sort!(ms)
 
-if scale_n
-    ns = ns_in
-    ms = ms_in
-    scl_txt = "frac$frac" 
-else
-    ms    = copy(ms_in)
-    ms_in = fill(ms_in[end], length(ms_in))
-    ns    = fill(ns_in[end], length(ns_in))
-    ns_in = ns
-    scl_txt = "n$n"
-end
+ns = [ns[end]]
+ms = [ms[end]]
 
-filename = "./scaling_torus_$(@sprintf("tol%.0e", tol))_$scl_txt"
+sizes = zeros(Float64, length(tols), length(ns), 2)
+errs  = zeros(Float64, length(tols), length(ns))
 
-if false # isfile(filename * ".jld")
+filename = "./scaling_torus_tols"
+
+if isfile(filename * ".jld")
     dict  = load(filename * ".jld")
     ns    = dict["ns"]
+    ms    = dict["ms"]
     sizes = dict["sizes"]
+    errs  = dict["errs"]
 else
-    sizes = zeros(Float64, 2, length(ns))
-    for (j, (n, m, n_in, m_in)) in enumerate(zip(ns, ms, ns_in, ms_in))
+    for (t, tol) in enumerate(tols)
+    for (j, (n,m)) in enumerate(zip(ns, ms))
         # load points, eigenvectors, and eigenvalues
         points = readdlm(
-            dir*"torus_points_n$n_in.csv", ',', Float64
+            dir*"torus_points_n$n.csv", ',', Float64
             )
         eigvv = nothing
         try
             eigvv  = readdlm(
-                dir*"torus_eigenfunctions_n$(n_in)_m$(m_in).csv", 
+                dir*"torus_eigenfunctions_n$(n)_m$(m).csv", 
                 ',', ComplexF64
                 )
         catch err
             eigvv  = readdlm(
-                dir*"torus_eigenfunctions_n$(n_in)_m$(m_in).csv", 
+                dir*"torus_eigenfunctions_n$(n)_m$(m).csv", 
                 ',', Float64
                 )
         end
@@ -65,26 +59,25 @@ else
         # remaining columns are eigenvectors
         Phi = eigvv[:,2:(m+1)]
 
-        # declare 2D (u,v) points
-        us = Matrix(points[:, 1:2]')
-
         # number of levels in factorization
-        L = floor(Int64, log(4, n))
+        L = floor(Int64, log(4, n) - 2)
 
         # compute space tree
-        trx = build_tree(
-            us, 
-            max_levels=L, min_pts=1, sort=false, k=2
-            )
+        tree_sf = vec(readdlm(dir*"torus-tree-$n.csv", ',', Int64))
+        sf      = tensor_to_vec(stack([fill(t, 8, 8) for t in tree_sf], dims=3))
+        trx, _ = build_tree(
+            Matrix(points[:,3:5]'),
+            max_levels=L, min_pts=-1, sf=sf, k=2
+        )
 
         # compute frequency tree either by eigenvalue or index
         if by_index
-            trw = build_tree(
+            trw, _ = build_tree(
                 ks, max_levels=L, min_pts=-1, sort=false, k=4, 
                 ll=SVector{1, Float64}(1), widths=SVector{1, Float64}(length(ks)-1)
                 )
         else
-            trw = build_tree(
+            trw, _ = build_tree(
                 reshape(lams, 1, :), max_levels=L, min_pts=-1, sort=false, k=4
                 )
         end
@@ -98,77 +91,96 @@ else
             kernel=kernel, L=L, trx=trx, trw=trw, tol=tol, verbose=true, method=:ID, os=3
             );
 
-        sizes[1, j] = Base.summarysize(B.Vt) + Base.summarysize(B.U)
+        sizes[t, j, 1] = Base.summarysize(B.Vt) + Base.summarysize(B.U)
+        sizes[t, j, 2] = sizeof(eltype(B.Vt[1][1,1])) * prod(size(B))
 
-        sizes[2, j] = sizeof(eltype(B.Vt[1][1,1])) * prod(size(B))
+        v  = randn(m)
+        Bv = conj.(B*v)
+        Av = zeros(ComplexF64, n)
+        ki = zeros(ComplexF64, m)
+        for i=1:n
+            # compute ith row
+            ki   .= kernel([i], collect(1:m))[:]
+            Av[i] = dot(ki, v)
+        end
+        errs[t, j] = norm(Av - Bv) / norm(Av)
+        @printf("Relative error in matvec : %.2e\n", errs[t, j])
 
         save(
             filename * ".jld",
+            "sizes", sizes,
+            "errs", errs,
             "ns", ns,
-            "sizes", sizes
+            "ms", ms
             )
-        
-        v = randn(m)
-        
-        println("Butterfly matvec : ")
-        wb = @time B*v
-
-        if prod(size(B)) < 20_000^2
-            println("Dense matvec : ")
-            # w  = @btime $Phi[:, 1:m]*$v
-            w = @time Phi[:, 1:m]*v
-            @printf("\nRelative apply error  : %.2e\n", norm(w - wb) / norm(w))
-        end
+    end
     end
 end
+
+##
+
+i1 = sum((!).(iszero.(sizes[1,:,1])))
+pl = plot(
+    ns, sizes[1,:,2] / 2^30, 
+    xlabel="n", ylabel="size (GB)",
+    label="dense",
+    line=2, marker=3, markerstrokewidth=0, dpi=300,
+    ylims=[1e-3, 5e0], 
+    xticks=([5e3, 1e4, 5e4],[L"5\times 10^3", L"10^4", L"5\times 10^4"]),
+    yticks=([1e-2, 1e-1, 1e0],[L"10^{-2}", L"10^{-1}", L"10^0"]), legend=:topleft
+    )
+for (t, tol) in enumerate(tols)
+    plot!(pl,
+        ns, sizes[t,:,1] / 2^30,
+        label=@sprintf("ε = %.0e", tol),
+        scale=:log10,
+        line=2, marker=3, markerstrokewidth=0
+        )
+end
+
+i0 = div(i1, 2)
+powers = [2, 3/2, 5/3]
+labels = [L"\mathcal{O}(n^2)", L"\mathcal{O}(n^{3/2})", L"\mathcal{O}(n^{5/3})"]
+inds   = [(i0:i1), (i0:i1), (i0:i1)]
+
+plot!(pl, 
+    ns[inds[2]],
+    0.6 * sizes[1,inds[2][1],1]/2^30 * (ns[inds[2]]/ns[inds[2][1]]).^powers[2], 
+    label=labels[2], 
+    line=(2,:dash,:black)
+    )
+plot!(pl, 
+    ns[inds[1]], 
+    1.5 * sizes[1,inds[1][1],2]/2^30 * (ns[inds[1]]/ns[inds[1][1]]).^powers[1], 
+    label=labels[1], 
+    line=(2,:dashdot,:gray)
+    ) 
+# plot!(pl, 
+#     ns[inds[3]], 
+#     0.25 * sizes[1,inds[3][1],1]/2^30 * (ns[inds[3]]/ns[inds[3][1]]).^powers[3], 
+#     label=labels[3], 
+#     line=(2,:dot,:gray60), legend=:bottomright
+#     )
+display(pl)
+
+savefig(pl, "/Users/beckman/Downloads/" * filename * ".pdf")
 
 ##
 
 default(fontfamily="Computer Modern")
 gr(size=(300, 300))
 
-nms = (scale_n ? ns : ms)
-
-tks = nms[1] * 2 .^ (0:floor(Int64, log2(nms[end]/nms[1])))
-
-i1 = sum((!).(iszero.(sizes[1,:])))
 pl = plot(
-    nms[1:i1], sizes[:,1:i1]' / 2^30, 
-    labels=["butterfly" "dense"],
-    xlabel=(scale_n ? "n" : "m"),  
-    ylabel="size (GB)",
-    # title="MHT on deformed torus\n" * 
-    #     @sprintf("ε = %.0e, ", tol) * 
-    #     (isnothing(frac) ? "m = $m" : "m = $frac n"),
-    scale=:log10,
-    # ylims=[5e-4, 1e3],
-    line=2, marker=3, markerstrokewidth=0, dpi=300,
-    xticks=(tks, string.(tks))
+    tols, errs,
+    line=2, marker=3, markerstrokewidth=0,
+    xlabel=L"$\varepsilon$", 
+    ylabel=L"rel. $\ell^2$ error",
+    label="",
+    xscale=:log10, yscale=:log10, 
+    ylims=(5e-16, 1e-1), xlims=(5e-16, 5e-2),
+    legend=:bottomright
     )
-
-i0 = div(i1, 2)
-if scale_n
-    powers = [2, 1.5]
-    labels = [L"\mathcal{O}(n^2)", L"\mathcal{O}(n^{3/2})"]
-    inds   = [(i0:i1), (i0:i1)]
-else
-    powers = [1, 0.5]
-    labels = [L"\mathcal{O}(m)", L"\mathcal{O}(\sqrt{m})"]
-    inds   = [(i0:i1), (1:(i0-1))]
-end
-
-plot!(pl, 
-    nms[inds[1]], 
-    0.7 * sizes[2,inds[1][1]]/2^30 * (nms[inds[1]]/nms[inds[1][1]]).^powers[1], 
-    label=labels[1], 
-    line=(2,:dashdot,:gray), legend=:bottomright
-    ) 
-plot!(pl, 
-    nms[inds[2]], 
-    0.8 * sizes[1,inds[2][1]]/2^30 * (nms[inds[2]]/nms[inds[2][1]]).^powers[2], 
-    label=labels[2], 
-    line=(2,:dash,:black), legend=:bottomright
-    )
+plot!([1e-16, 1], [1e-16, 1], line=(1, :black, :dash), label="")
 display(pl)
 
-savefig(pl, "/Users/beckman/Downloads/" * filename * ".pdf")
+savefig(pl, "/Users/beckman/Downloads/torus_accuracy_vs_tol.pdf")

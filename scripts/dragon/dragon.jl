@@ -5,7 +5,7 @@ mesh_file     = "dragon-reordered.csv"
 tree_file     = "dragon-tree.csv"
 block_file    = "dragon-blocks.csv"
 file_template = "output/dragon_eigenfunctions_n460448_blsz250"
-bs            = 0:4
+bs            = 0:24
 files         = [file_template * "_b$b.bin" for b=bs]
 dedup_files   = [file_template * "_b$(b)_dedup.bin" for b=bs]
 
@@ -13,16 +13,20 @@ xs      = Matrix(readdlm(mesh_file, ',', Float64)')
 tree_sf = vec(readdlm(tree_file, ',', Int64))
 
 n   = size(xs, 2)
-npa = div(n, 64)
+npa = div(n, 16)
 vec_to_tensor(v) = reshape(
-    vcat(reshape.(collect(partition(v, 8*npa)), 8, :)...), 8, 8, :
+    vcat(reshape.(collect(partition(v, 4*npa)), 4, :)...), 4, 4, :
     )
 tensor_to_vec(T) = vec(vcat([T[:,:,i] for i in axes(T,3)]...))
-repair(v::AbstractVector) = tensor_to_vec(vec_to_tensor(v)[:,:,keep_patches])
-repair(M::AbstractMatrix) = stack(repair.(eachcol(M)))
+
+function read_slice(file)
+    M = Matrix{Float64}(undef, 2n+2, 250)
+    read!(file, M)
+    return M[[1; 3:(n+2)],:] + im*M[[2; (n+3):end],:]
+end
 
 function split_conjugates(M)
-    conj_inds = findall(abs.(M[2,:]) .> 0)
+    conj_inds = findall(imag.(M[1,:]) .!= 0)
     nc        = div(length(conj_inds), 2)
     @printf("found %i conjugate pairs\n", nc)
     println(conj_inds)
@@ -54,28 +58,29 @@ end
 
 # whether to remove redundant eigenfunctions from adjacent slices and split
 # eigenfunctions which are complex conjugates due to numerical asymmetry
-deduplicate = true
+deduplicate = false
 
 if deduplicate
     blszs = zeros(Int64, length(files))
 
     @printf("reading in slices %i and %i...\n", bs[1], bs[2])
-    M1 = readdlm(files[1], ',', ComplexF64)
-    M2 = readdlm(files[2], ',', ComplexF64)
+    global M1 = read_slice(files[1])
+    global M2 = read_slice(files[2])
 
     @printf("splitting conjugate eigenpairs in slice %i...\n", bs[1])
-    M1 = split_conjugates(M1)
+    global M1 = split_conjugates(M1)
 
     @printf("writing de-duplicated slice %i...\n", bs[1])
-    write(dedup_files[1], [M1[1,:]'; repair(M1[2:end,:])], bs[1])
+    write(dedup_files[1], [M1[1,:]'; M1[2:end,:]], bs[1])
     blszs[1] = size(M1, 2)
 
     for k=1:length(files)-1
         @printf("\nsplitting conjugate and removing duplicate eigenpairs in slice %i...\n", bs[1]+k)
-        M2 = split_conjugates(M2)
+        global M2 = split_conjugates(M2)
+        @show extrema(M1[1,:]), extrema(M2[1,:])
 
         eigval_err, i = findmin(
-            [norm(M1[1,end-i+1:end] - M2[1,1:i], Inf) ./ norm(M2[1,1:i], Inf) for i=1:ceil(Int64, 0.2size(M1,2))]
+            [norm(M1[1,end-i+1:end] - M2[1,1:i], Inf) ./ norm(M2[1,1:i], Inf) for i=1:size(M1,2)]
         )
         @printf("%.2e relative error when aligning duplicate eigenpairs between slices\n", eigval_err)
         for (l1, l2) in zip(M1[1,end-i+1:end], M2[1,1:i])
@@ -85,24 +90,22 @@ if deduplicate
         @assert eigval_err < 1e-2
 
         # remove overlapping eigenpairs from lower part of M2
-        M2 = M2[:,(i+1):end]
+        global M2 = M2[:,(i+1):end]
         @printf("removed %i duplicates\n%i eigenpairs remaining in slice %i\n", i, size(M2,2), bs[1]+k)
 
         @printf("writing de-duplicated slice %i...\n", bs[1]+k)
-        write(dedup_files[k+1], [M2[1,:]'; repair(M2[2:end,:])])
+        write(dedup_files[k+1], [M2[1,:]'; M2[2:end,:]])
         blszs[k+1] = size(M2, 2)
 
         # read in next slice
         if k < length(files)-1
             @printf("reading in slice %i...\n", bs[1]+k+1)
-            M1 = M2
-            M2 = readdlm(files[k+2], ',', ComplexF64)
+            global M1 = M2
+            global M2 = read_slice(files[k+2])
         end
         writedlm(block_file, blszs)
     end
 end
-
-##
 
 blszs   = vec(readdlm(block_file, ',', Int64))
 bl_bnds = 1 .+ [sum(blszs[1:k]) for k=0:length(blszs)]
@@ -116,10 +119,10 @@ for (i, dedup_file) in enumerate(dedup_files)
     read!(dedup_file, M)
     if i == 1
         global Lam = M[1, :]
-        global Phi = M[2:end, :]
+        # global Phi = M[2:end, :]
     else
         global Lam = [Lam; M[1, :]]
-        global Phi = [Phi M[2:end, :]]
+        # global Phi = [Phi M[2:end, :]]
     end
 end
 
@@ -163,15 +166,25 @@ function get_columns(ks)
     return Phi
 end
 
+function dense_apply(v)
+    out = zeros(Float64, n)
+    i0  = 1
+    for bl in blszs
+        out .+= get_columns(i0:(i0+bl-1)) * v[i0:(i0+bl-1)]
+        i0   += bl
+    end
+    return out
+end
+
 ##
 
 tol = 1e-3
 
 m = bl_bnds[bs[end]+2]-1
-L = min(9, floor(Int64, log2(m) - 1))
+L = 10 # min(9, floor(Int64, log2(m) - 2))
 @printf("Computing trees of depth L = %i\n", L)
 
-sf = tensor_to_vec(stack([fill(t, 8, 8) for t in tree_sf], dims=3))
+sf = tensor_to_vec(stack([fill(t, 4, 4) for t in tree_sf], dims=3))
 trx, permx = build_tree(
     xs, max_levels=L, min_pts=-1, sf=sf, k=2
     )
@@ -182,7 +195,7 @@ trw, _     = build_tree(
 # compute butterfly factorization of the manifold harmonic transform
 B = butterfly_factorize(
     get_columns, xs, collect((1:m)'); 
-    L=L, trx=trx, trw=trw, tol=tol, T=Float64, method=:ID, os=3,
+    L=L, trx=trx, trw=trw, tol=tol, T=Float64, method=:ID, os=5,
     verbose=true
     );
 
@@ -192,43 +205,101 @@ butterfly_bytes = Base.summarysize(B.Vt) + Base.summarysize(B.U) + Base.summarys
 @printf("\nSize of factorization : %s\n", Base.format_bytes(butterfly_bytes))
 @printf("Size of dense matrix : %s\n", Base.format_bytes(dense_bytes))
 @printf("Compression ratio : %.2f\n", dense_bytes / butterfly_bytes)
+v  = randn(m)
+println("\nDense matvec : ")
+w  = @time dense_apply(v)
+println("\nButterfly matvec : ")
+wb = @time B*v
+@printf(
+    "\nRelative apply error  : %.2e\n", 
+    norm(w - wb) / norm(w)
+    )
 
 ##
 
 function apply(v, flag)
     if flag === Val(true)
-        return Phi'*v
+        return B'*v
     else
-        return Phi*v
+        return B*v
     end
 end
 
 # compute coefficients by least squares
 # C = Phi \ xs'
-C_x = lsqr(Phi, xs[1,:], verbose=true, atol=tol, btol=tol)
-C_y = lsqr(Phi, xs[2,:], verbose=true, atol=tol, btol=tol)
-C_z = lsqr(Phi, xs[3,:], verbose=true, atol=tol, btol=tol)
+lsqr_tol = tol
+damp = 0
+C_x = lsqr(B, xs[1,:], damp=damp, verbose=true, atol=lsqr_tol, btol=lsqr_tol)
+C_y = lsqr(B, xs[2,:], damp=damp, verbose=true, atol=lsqr_tol, btol=lsqr_tol)
+C_z = lsqr(B, xs[3,:], damp=damp, verbose=true, atol=lsqr_tol, btol=lsqr_tol)
 C = [C_x C_y C_z]
 @printf(
     "absolute reconstruction error : %.2e (rel 2-norm), %.2e (max)\n", 
-    norm(Phi*C - xs') / norm(xs), maximum(norm.(eachrow(Phi*C - xs')))
+    norm(B*C - xs') / norm(xs), maximum(norm.(eachrow(B*C - xs')))
     )
 
 ##
 
-drop_threshold = 5
-drop_inds = findall(norm.(eachrow(xs' - Phi * C)) .> drop_threshold)
-keep_inds = setdiff(1:size(xs,2), drop_inds)
-@printf("keeping %.1f%% of %i indices\n", 100length(keep_inds)/size(xs,2), size(xs,2))
+lintoexp(t, s=100) = (exp.(s*t).-1) / (exp(s)-1)
+
+function Ft(t, lam)
+    if t < 1 # flat
+        return 1
+    elseif t < 4 # low pass down
+        c = 20_000 - 20_000*lintoexp((t-1)/3, -10)
+        w = 10
+        return (lam < c) ? 1 : exp(-((lam - c)/w)^2)
+    elseif t < 8 # band bump up
+        w0 = 10 + 50_000lintoexp((t-4)/4, -1)
+        c = 10 + 20_000*lintoexp((t-4)/4, 3)
+        w = 10 + 490*lintoexp((t-4)/4, -0.1)
+        a = t < 6 ? 15lintoexp((t-4)/2, 1) : 15(1-lintoexp((t-6)/2, 5))
+        return exp(-(lam/w0)^2) + a*exp(-((lam - c)/w)^2)
+    else
+        return 1
+    end
+end
 
 ##
 
-# apply filter and recompute vertex locations
-F(lam) = 1 # lam <= Lam[191] # + 0.001exp(-(lam - 0.05)^2 / 5e-3)
-xs_filtered = (Phi * (C .* F.(Lam)))'
+fps = 8
+nf  = 8*fps
+for (f, t) in enumerate(range(0, 8, nf+1)[1:end-1])
+    xs_filtered = (B * (C .* Ft.(t, Lam)))'
+    open("output/dragon_frame$f.csv", "w") do file
+        writedlm(
+            file, 
+            [
+                reshape(vec_to_tensor(xs_filtered[1,:]), :, 1) reshape(vec_to_tensor(xs_filtered[2,:]), :, 1) reshape(vec_to_tensor(xs_filtered[3,:]), :, 1)
+                ], 
+            ','
+            )
+    end
+end
 
 ##
 
-open("/Users/beckman/Downloads/trex_filtered.csv", "w") do file
-    writedlm(file, xs_filtered[:,keep_inds]', ',')
+xs_filtered = (B * (C .* Ft.(4.05, Lam)))'
+open("output/dragon_frame_t4.csv", "w") do file
+    writedlm(
+        file, 
+        [
+            reshape(vec_to_tensor(xs_filtered[1,:]), :, 1) reshape(vec_to_tensor(xs_filtered[2,:]), :, 1) reshape(vec_to_tensor(xs_filtered[3,:]), :, 1)
+            ], 
+        ','
+        )
+end
+
+##
+
+F(lam) = (lam < 1000) ? 1 : 0
+xs_filtered = (B * (C .* F.(Lam)))'
+open("output/dragon_smoothed.csv", "w") do file
+    writedlm(
+        file, 
+        [
+            reshape(vec_to_tensor(xs_filtered[1,:]), :, 1) reshape(vec_to_tensor(xs_filtered[2,:]), :, 1) reshape(vec_to_tensor(xs_filtered[3,:]), :, 1)
+            ], 
+        ','
+        )
 end

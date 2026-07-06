@@ -136,7 +136,8 @@ function refine_tree!(tree::Tree{D, K, T}, pts::Matrix;
                     nn, 2, :SR, verbosity=0, issymmetric=true
                 )[2][2]
             ch_inds = 1 .+ (phi2 .> 0)
-            if sum(ch_inds .== 1) < nn/8 || sum(ch_inds .== 2) < nn/4
+            println("left: $(sum(ch_inds .== 1)), right: $(sum(ch_inds .== 2))")
+            if sum(ch_inds .== 1) < nn/4 || sum(ch_inds .== 2) < nn/4
                 # tree is becoming unbalanced, prioritize balance (stupidly)
                 @warn("tree is becoming unbalanced... switching from intrinsic to extrinsic metric.")
                 xs   = @view(pts[:,node.inds])
@@ -149,10 +150,17 @@ function refine_tree!(tree::Tree{D, K, T}, pts::Matrix;
             split_meshfree!(node, pts, view(ch_inds, 1:nn))
         elseif !isnothing(sf)
             # determine child boxes by SurfaceFun label 
-            ch_inds = 1 .+ Base.getindex.(
-                reverse.(digits.(sf[node.inds], base=2)), 
-                node.level + 2
-                )
+            try
+                ch_inds = 1 .+ Base.getindex.(
+                    reverse.(digits.(sf[node.inds], base=2)), 
+                    node.level + 2
+                    )
+            catch err 
+                @show node.inds
+                @show sf[node.inds]
+                @show node.level
+                rethrow(err)
+            end
             split_meshfree!(node, pts, view(ch_inds, 1:nn))
         else
             s    = inrt(K, D) 

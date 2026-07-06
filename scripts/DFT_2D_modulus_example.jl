@@ -5,16 +5,16 @@ import SphericalHarmonics: sphericalharmonic
 include("util.jl")
 
 # size of DFT to factorize
-n1d = 2^13
+n1d = 2^8
 n   = n1d^2
 # number of eigenvectors to compress (or nothing to compress O(n) vectors)
-m = round(Int64, n/4)
+m = round(Int64, n/64)
 # number of levels in factorization
-L = floor(Int64, log(4, m)) - 0
+L = floor(Int64, log(4, m)) - 2
 # whether to compute spherical harmonic transform
 SHT = false
 # whether to use uniformly random xs
-nonuniform = false
+nonuniform = true
 # whether to subdivide frequencies by index rather than norm
 by_index = false
 # tolerance for factorization

@@ -8,57 +8,30 @@ include("util.jl")
 SHT = false
 # whether to subdivide frequencies by index rather than norm
 by_index = false
-# tolerance for factorization
-tol = 1e-3
-# whether to scale n (scale m if false)
-scale_n = true
 
-if scale_n
-    # increasing number of points in space
-    ns = round.(Int64, 10 .^ range(3, 7, 12))
+# increasing number of points in space
+ns = 160_000 # round.(Int64, sqrt.(10 .^ range(3, 6, 10))).^2
+# proportionally increasing number of eigenfunctions
+ms = round.(Int64, ns / 25)
+# tolerances
+tols  = 10.0 .^ (-2:-1:-14) # [1e-3, 1e-6, 1e-9]
 
-    # whether to compress m = O(1) or m = frac*n = O(n) eigenmodes
-    m, frac = nothing, 1/4
-    # m, frac = minimum(ns), nothing
+sizes = zeros(Float64, length(tols), length(ns), 2)
+errs  = zeros(Float64, length(tols), length(ns))
 
-    scl_txt = (isnothing(frac) ? "m$m" : "frac$frac")
-else
-    # fixed number of points in space
-    n = 10^5
+filename = "./scaling_$(SHT ? "NUSHT" : "NUFFT2D")_tols"
 
-    # increasing number of eigenmodes
-    ms = round.(Int64, 10 .^ range(2, log10(n/2), 10))
-
-    scl_txt = "n$n"
-end
-
-filename = "./scaling_$(SHT ? "NUSHT" : "NUFFT2D")_$(@sprintf("tol%.0e", tol))_$scl_txt"
-
-global bl_szs = nothing
-
-if false # isfile(filename * ".jld")
-    dict  = load(filename * ".jld")
-    if scale_n
-        ns = dict["ns"]
-    else
-        ms = dict["ms"]
-    end
+if isfile(filename * ".jld")
+    dict = load(filename * ".jld")
+    ns = dict["ns"]
+    ms = dict["ms"]
     sizes = dict["sizes"]
+    errs  = dict["errs"]
 else
-    sizes = zeros(Float64, 2, length(scale_n ? ns : ms))
-    for (j, nm) in enumerate(scale_n ? ns : ms)
-        if scale_n
-            n = nm
-            if !isnothing(frac)
-                m = round(Int64, frac * n)
-            end
-        else
-            m = nm
-        end
-
+    for (t, tol) in enumerate(tols)
+    for (j, (n,m)) in enumerate(zip(ns, ms))
         # number of levels in factorization
         L = max(1, floor(Int64, log(4, m)) - 2)
-        # L = div(floor(Int64, log(4, n)), 2)
 
         # compute points 
         if SHT
@@ -72,17 +45,16 @@ else
             ]
             
             # build a quadtree on [θ; cos(φ)] to get an equal-area tree on the sphere
-            tree_xs = [xs[1,:]'; cos.(xs[2,:])']
+            xs = [xs[1,:]'; cos.(xs[2,:])']
         else
-            # sample uniformly random points in [0,2π]^2
-            xs = 2pi*rand(2, n)
-            tree_xs = xs
+            # equispaced grid on [0,2π]^2
+            xs1d = range(0, 2pi, Int64(sqrt(n))+1)[1:end-1]
+            xs   = hcat(collect.(product(xs1d, xs1d))...)
         end
 
         # compute space tree
         trx, _ = build_tree(
-            tree_xs, 
-            max_levels=L, min_pts=1, sort=false
+            xs, max_levels=L, min_pts=1, sort=false
             )
 
         if SHT
@@ -138,64 +110,99 @@ else
             kernel=kernel, L=L, trx=trx, trw=trw, tol=tol, verbose=true, method=:ID, os=3
             );
 
-        sizes[1, j] = Base.summarysize(B.Vt) + Base.summarysize(B.U)
+        sizes[t, j, 1] = Base.summarysize(B.Vt) + Base.summarysize(B.U)
+        sizes[t, j, 2] = sizeof(eltype(B.Vt[1][1,1])) * prod(size(B))
 
-        sizes[2, j] = sizeof(eltype(B.Vt[1][1,1])) * prod(size(B))
+        v  = randn(m)
+        Bv = conj.(B*v)
+        Av = zeros(ComplexF64, n)
+        ki = zeros(ComplexF64, m)
+        for i=1:n
+            # compute ith row
+            ki   .= kernel(xs[:,i], collect(1:m))[:]
+            Av[i] = dot(ki, v)
+        end
+        errs[t, j] = norm(Av - Bv) / norm(Av)
+        @printf("Relative error in matvec : %.2e\n", errs[t, j])
 
         save(
             filename * ".jld",
             "sizes", sizes,
-            (scale_n ? ("ns", ns) : ("ms", ms))...
+            "errs", errs,
+            "ns", ns,
+            "ms", ms
             )
-
-        global bl_szs = [size.(Vtl) for Vtl in B.Vt]
+    end
     end
 end
 
 ##
 
-nms = (scale_n ? ns : ms)
-
 default(fontfamily="Computer Modern")
 gr(size=(300, 300))
+Plots.scalefontsizes()
+Plots.scalefontsizes(1.25)
 
-i1 = sum((!).(iszero.(sizes[1,:])))
+i1 = sum((!).(iszero.(sizes[1,:,1])))
 pl = plot(
-    nms[1:i1], sizes[:,1:i1]' / 2^30, 
-    labels=["butterfly" "dense"],
-    xlabel=(scale_n ? "n" : "m"), 
-    ylabel="size (GB)",
-    # title=(SHT ? "NUSHT\n" : "2D NUFFT\n") * 
-    #     @sprintf("ε = %.0e, ", tol) * 
-    #     (isnothing(frac) ? "m = $m" : @sprintf("m = %.4f n", frac)),
-    scale=:log10,
-    ylims=[1e-4, 1e3],
-    line=2, marker=3, markerstrokewidth=0, dpi=300
+    ns, sizes[1,:,2] / 2^30, 
+    xlabel="n", ylabel="size (GB)",
+    label="dense",
+    line=2, marker=3, markerstrokewidth=0, dpi=300,
+    ylims=[1e-4, 1e3], xticks=([1e3, 1e4, 1e5, 1e6],[L"10^3", L"10^4", L"10^5", L"10^6"])
     )
-
-i0 = div(i1, 2)
-if scale_n
-    powers = [2, 3/2]
-    labels = [L"\mathcal{O}(n^2)", L"\mathcal{O}(n^{3/2})"]
-    inds   = [(i0:i1), (i0:i1)]
-else
-    powers = [1, 1/2]
-    labels = [L"\mathcal{O}(m)", L"\mathcal{O}(\sqrt{m})"]
-    inds   = [(i0:i1), (1:(i0-1))]
+for (t, tol) in enumerate(tols)
+    plot!(pl,
+        ns, sizes[t,:,1] / 2^30,
+        label=@sprintf("ε = %.0e", tol),
+        scale=:log10,
+        line=2, marker=3, markerstrokewidth=0
+        )
 end
 
+i0 = div(i1, 2)
+powers = [2, 3/2, 5/3]
+labels = [L"\mathcal{O}(n^2)", L"\mathcal{O}(n^{3/2})", L"\mathcal{O}(n^{5/3})"]
+inds   = [(i0:i1), (i0:i1), (i0:i1)]
+
 plot!(pl, 
-    nms[inds[1]], 
-    0.5 * sizes[2,inds[1][1]]/2^30 * (nms[inds[1]]/nms[inds[1][1]]).^powers[1], 
+    ns[inds[1]], 
+    2 * sizes[1,inds[1][1],2]/2^30 * (ns[inds[1]]/ns[inds[1][1]]).^powers[1], 
     label=labels[1], 
     line=(2,:dashdot,:gray), legend=:bottomright
     ) 
 plot!(pl, 
-    nms[inds[2]], 
-    0.5 * sizes[1,inds[2][1]]/2^30 * (nms[inds[2]]/nms[inds[2][1]]).^powers[2], 
+    ns[inds[2]],
+    0.4 * sizes[1,inds[2][1],1]/2^30 * (ns[inds[2]]/ns[inds[2][1]]).^powers[2], 
     label=labels[2], 
     line=(2,:dash,:black), legend=:bottomright
     )
+# plot!(pl, 
+#     ns[inds[3]], 
+#     0.25 * sizes[1,inds[3][1],1]/2^30 * (ns[inds[3]]/ns[inds[3][1]]).^powers[3], 
+#     label=labels[3], 
+#     line=(2,:dot,:gray60), legend=:bottomright
+#     )
 display(pl)
 
 savefig(pl, "/Users/beckman/Downloads/" * filename * ".pdf")
+
+##
+
+default(fontfamily="Computer Modern")
+gr(size=(300, 300))
+
+pl = plot(
+    tols, errs,
+    line=2, marker=3, markerstrokewidth=0,
+    xlabel=L"$\varepsilon$", 
+    ylabel=L"rel. $\ell^2$ error",
+    label="",
+    xscale=:log10, yscale=:log10, 
+    ylims=(5e-16, 1e-1), xlims=(5e-16, 5e-2),
+    legend=:bottomright
+    )
+plot!([1e-16, 1], [1e-16, 1], line=(1, :black, :dash), label="")
+display(pl)
+
+savefig(pl, "/Users/beckman/Downloads/torus_accuracy_vs_tol.pdf")

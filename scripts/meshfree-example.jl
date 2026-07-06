@@ -169,27 +169,33 @@ end
 
 ##
 
+default(fontfamily="Computer Modern")
+gr(size=(300, 300))
+Plots.scalefontsizes()
+Plots.scalefontsizes(1.25)
+
 pl_inds = 1:8
 pl = plot(
     ns[pl_inds], sizes[pl_inds,1,1]/1024^3, 
     line=2, label="dense", legend=:topleft,
-    xscale=:log10, yscale=:log10, ylims=(1e-4, 1e1), marker=2, markerstrokewidth=0
+    xlabel="n", ylabel="size (GB)",
+    xscale=:log10, yscale=:log10, ylims=(1e-4, 1e1), marker=3, markerstrokewidth=0
     )
 plot!(pl,
     ns[pl_inds], sizes[pl_inds,:,2]/1024^3, 
-    line=2, marker=2, markerstrokewidth=0, 
-    label="dense", 
-    labels=[L"\sigma^2 = 0.01" L"\sigma^2 = 0.02" L"\sigma^2 = 0.04"]
+    line=2, marker=3, markerstrokewidth=0, 
+    label="butterfly"
     )
 ref_inds = round(Int64, 2/3*length(pl_inds)):length(pl_inds)
 plot!(pl,
-    ns[ref_inds], 0.3ns[ref_inds].^2/1024^3, 
-    line=(2, :black, :dash), label=L"\mathcal{O}(n^2)"
+    ns[ref_inds], 8 * ns[ref_inds].^(3/2)/1024^3, 
+    line=(2, :black, :dash), label=L"\mathcal{O}(n^{3/2})"
 )
 plot!(pl,
-    ns[ref_inds], 11 * ns[ref_inds].^(3/2)/1024^3, 
-    line=(2, :grey, :dashdot), label=L"\mathcal{O}(n^{3/2})"
+    ns[ref_inds], 0.5ns[ref_inds].^2/1024^3, 
+    line=(2, :grey, :dashdot), label=L"\mathcal{O}(n^2)"
 )
+
 
 ##
 

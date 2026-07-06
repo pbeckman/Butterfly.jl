@@ -4,7 +4,7 @@ import Random: randperm
 include("util.jl")
 
 # size of DFT to factorize
-n = 2^2
+n = 2^14
 m = n
 
 # number of levels in factorization
@@ -47,7 +47,7 @@ get_columns(ks) = kernel(xs, ws[:,ks])
 
 B = butterfly_factorize(
     get_columns, xs, ws; L=L,
-    trx=trx, trw=trw, tol=tol, verbose=1, method=:ID, os=3
+    trx=trx, trw=trw, tol=tol, verbose=1, method=:SVD
     );
 
 if n < 10_000

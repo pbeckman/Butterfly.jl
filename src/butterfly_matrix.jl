@@ -17,6 +17,8 @@ mutable struct ButterflyMatrix{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number
     beta      :: Vector{Matrix{Vector{T}}}
 end
 
+Base.eltype(B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number} = T
+
 Base.size(B::ButterflyMatrix) = (length(B.trx.inds), length(B.trw.inds))
 Base.size(B::ButterflyMatrix, j) = size(B)[j]
 
@@ -24,12 +26,20 @@ Base.show(io::IO, B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}) where{Dx, Kx, D
 
 Base.adjoint(B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number} = Adjoint{T, ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}}(B)
 
-function LinearAlgebra.:*(B::ButterflyMatrix, src::Vector)
-    dest = Vector{ComplexF64}(undef, size(B, 1))
+function LinearAlgebra.:*(B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}, src::Vector) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number}
+    dest = Vector{T}(undef, size(B, 1)) # TODO pb 2/18/26 : this will cause errors for applying a real matrix to a complex vector
     return mul!(dest, B, src)
 end
 
-function LinearAlgebra.mul!(dest::Vector, B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}, src::Vector) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number}
+function LinearAlgebra.:*(B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}, src::Matrix) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number}
+    dest = Matrix{T}(undef, size(B, 1), size(src, 2))
+    for j in axes(src, 2)
+        mul!(@view(dest[:,j]), B, @view(src[:,j]))
+    end
+    return dest
+end
+
+function LinearAlgebra.mul!(dest::AbstractVector, B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}, src::AbstractVector) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number}
     L = B.level
     k0, sk = -1, -1
     for l=0:L
@@ -70,7 +80,7 @@ function LinearAlgebra.mul!(dest::Vector, B::ButterflyMatrix{Dx, Kx, Dw, Kw, Tx,
     return dest
 end
 
-function LinearAlgebra.mul!(dest::Vector, Bc::Adjoint{T, ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}}, src::Vector) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number}
+function LinearAlgebra.mul!(dest::AbstractVector, Bc::Adjoint{T, ButterflyMatrix{Dx, Kx, Dw, Kw, Tx, Tw, T}}, src::AbstractVector) where{Dx, Kx, Dw, Kw, Tx<:Number, Tw<:Number, T<:Number}
     B = Bc.parent
     L = B.level
     k0, sk = -1, -1
